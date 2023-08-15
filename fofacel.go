@@ -137,7 +137,7 @@ var containsCelFunc = cel.Function("Contains",
 	),
 )
 
-// equalCelFunc 忽略s1与s2是否相等 comparatorSymbols : ==
+// equalCelFunc 判断s1与s2是否相等 comparatorSymbols : ==
 var equalCelFunc = cel.Function("Equal",
 	cel.Overload("Equal_string_string",
 		[]*cel.Type{cel.StringType, cel.StringType},
