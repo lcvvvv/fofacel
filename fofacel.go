@@ -12,8 +12,6 @@ import (
 )
 
 func init() {
-	reloadKeywordSymbols()
-
 	//初始化comparator正则
 	var comparators []string
 	for comparator := range comparatorSymbols {
@@ -21,6 +19,8 @@ func init() {
 	}
 
 	comparatorRegxString = strings.Join(comparators, "|")
+
+	reloadKeywordSymbols()
 }
 
 func reloadKeywordSymbols() {
@@ -33,7 +33,7 @@ func reloadKeywordSymbols() {
 	keywordRegxString = strings.Join(keywordSymbols, "|")
 
 	//序列化正则表达式
-	regxFofaRule = regexp.MustCompile(fmt.Sprintf(`(%s)[ \t]*(%s)[ \t]*("[^"]+")`, keywordRegxString, comparatorRegxString))
+	regxFofaRule = regexp.MustCompile(fmt.Sprintf(`((?i)%s)[ \t]*(%s)[ \t]*("[^"]+")`, keywordRegxString, comparatorRegxString))
 }
 
 func SetKeyword(keywords ...string) {
@@ -62,20 +62,25 @@ var (
 
 type RuleChecker struct {
 	cel.Program
+	expression string
 }
 
 // Match 只接受小写关键字，关键字清单见：keywordSymbols
 func (r *RuleChecker) Match(stringMap map[string]string) bool {
-	var inputs = make(map[string]interface{})
+	var input = make(map[string]any)
 	for _, keyword := range keywordSymbols {
-		inputs[keyword] = stringMap[keyword]
+		input[keyword] = stringMap[keyword]
 	}
-
-	out, _, err := r.Program.Eval(inputs)
+	out, _, err := r.Program.Eval(input)
 	if err != nil {
 		panic(err)
 	}
+
 	return out.Value().(bool)
+}
+
+func (r *RuleChecker) String() string {
+	return r.expression
 }
 
 func New(fofaRule string) (*RuleChecker, error) {
@@ -103,17 +108,18 @@ func New(fofaRule string) (*RuleChecker, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RuleChecker{prg}, nil
+	return &RuleChecker{prg, rule}, nil
 }
 
 func ruleConvert(fofaRule string) string {
 	fofaRule = strings.ReplaceAll(fofaRule, `\"`, `[quote]`)
+
 	fofaRule = regxFofaRule.ReplaceAllStringFunc(fofaRule, func(s string) string {
 		v := regxFofaRule.FindAllStringSubmatch(s, -1)[0]
 		keyword := v[1]
 		comparator := v[2]
 		value := v[3]
-		return fmt.Sprintf("%s(%s,%s)", comparatorSymbols[comparator], keyword, value)
+		return fmt.Sprintf("%s(%s,%s)", comparatorSymbols[comparator], strings.ToLower(keyword), value)
 	})
 	return strings.ReplaceAll(fofaRule, `[quote]`, `\"`)
 }
