@@ -27,6 +27,7 @@ func reloadKeywordSymbols() {
 	//初始化declarations
 	for _, keyword := range keywordSymbols {
 		declarations = append(declarations, decls.NewVar(keyword, decls.String))
+		declarations = append(declarations, decls.NewVar(addLowerFlag(keyword), decls.String))
 	}
 
 	//初始化keyword正则
@@ -61,17 +62,28 @@ var (
 )
 
 type RuleChecker struct {
-	cel.Program
+	program    cel.Program
 	expression string
 }
 
-// Match 只接受小写关键字，关键字清单见：keywordSymbols
-func (r *RuleChecker) Match(stringMap map[string]string) bool {
-	var input = make(map[string]any)
+type Keywords map[string]any
+
+func (k Keywords) Map() map[string]any {
+	return k
+}
+
+func NewKeywords(stringMap map[string]string) Keywords {
+	var keywordMap = make(Keywords)
 	for _, keyword := range keywordSymbols {
-		input[keyword] = stringMap[keyword]
+		keywordMap[keyword] = stringMap[keyword]
+		keywordMap[addLowerFlag(keyword)] = strings.ToLower(stringMap[keyword])
 	}
-	out, _, err := r.Program.Eval(input)
+	return keywordMap
+}
+
+// Match 只接受小写关键字，关键字清单见：keywordSymbols
+func (r *RuleChecker) Match(keywords Keywords) bool {
+	out, _, err := r.program.Eval(keywords.Map())
 	if err != nil {
 		panic(err)
 	}
@@ -119,7 +131,13 @@ func ruleConvert(fofaRule string) string {
 		keyword := v[1]
 		comparator := v[2]
 		value := v[3]
-		return fmt.Sprintf("%s(%s,%s)", comparatorSymbols[comparator], strings.ToLower(keyword), value)
+
+		switch comparator {
+		case "=", "!=":
+			return fmt.Sprintf("%s(%s,%s)", comparatorSymbols[comparator], addLowerFlag(strings.ToLower(keyword)), value)
+		default:
+			return fmt.Sprintf("%s(%s,%s)", comparatorSymbols[comparator], strings.ToLower(keyword), value)
+		}
 	})
 	return strings.ReplaceAll(fofaRule, `[quote]`, `\"`)
 }
@@ -138,7 +156,7 @@ var containsCelFunc = cel.Function("Contains",
 			if !ok {
 				return types.ValOrErr(rhs, "unexpected type '%v' passed to contains", rhs.Type())
 			}
-			return types.Bool(strings.Contains(strings.ToLower(string(v1)), strings.ToLower(string(v2))))
+			return types.Bool(strings.Contains(string(v1), strings.ToLower(string(v2))))
 		}),
 	),
 )
@@ -176,7 +194,7 @@ var notContainsCelFunc = cel.Function("NotContains",
 			if !ok {
 				return types.ValOrErr(rhs, "unexpected type '%v' passed to notContains", rhs.Type())
 			}
-			return types.Bool(!strings.Contains(strings.ToLower(string(v1)), strings.ToLower(string(v2))))
+			return types.Bool(!strings.Contains(string(v1), strings.ToLower(string(v2))))
 		}),
 	),
 )
@@ -201,8 +219,11 @@ var regexpMatchCelFunc = cel.Function("RegexpMatch",
 			if !ok {
 				return types.NewErr("uncompleted value '%v", err)
 			}
-
 			return types.Bool(re.MatchString(string(v1)))
 		}),
 	),
 )
+
+func addLowerFlag(s string) string {
+	return "ToLower" + s
+}
