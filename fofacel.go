@@ -120,7 +120,7 @@ func New(fofaRule string) (*RuleChecker, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RuleChecker{prg, rule}, nil
+	return &RuleChecker{prg, fofaRule}, nil
 }
 
 func ruleConvert(fofaRule string) string {
