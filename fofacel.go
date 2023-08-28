@@ -11,60 +11,15 @@ import (
 	"strings"
 )
 
-func init() {
-	//初始化comparator正则
-	var comparators []string
-	for comparator := range comparatorSymbols {
-		comparators = append(comparators, comparator)
-	}
-
-	comparatorRegxString = strings.Join(comparators, "|")
-
-	reloadKeywordSymbols()
-}
-
-func reloadKeywordSymbols() {
-	//初始化declarations
-	for _, keyword := range keywordSymbols {
-		declarations = append(declarations, decls.NewVar(keyword, decls.String))
-		declarations = append(declarations, decls.NewVar(addLowerFlag(keyword), decls.String))
-	}
-
-	//初始化keyword正则
-	keywordRegxString = strings.Join(keywordSymbols, "|")
-
-	//序列化正则表达式
-	regxFofaRule = regexp.MustCompile(fmt.Sprintf(`((?i)%s)[ \t]*(%s)[ \t]*("[^"]+")`, keywordRegxString, comparatorRegxString))
-}
-
-func SetKeyword(keywords ...string) {
-	keywordSymbols = keywords
-	reloadKeywordSymbols()
-}
-
-func AddKeyword(keywords ...string) {
-	keywordSymbols = append(keywordSymbols, keywords...)
-	reloadKeywordSymbols()
-}
-
 var (
-	keywordSymbols    = []string{"header", "body", "title", "icon"}
 	comparatorSymbols = map[string]string{
 		"==": "Equal",
 		"~=": "RegexpMatch",
 		"=":  "Contains",
 		"!=": "NotContains",
 	}
-	keywordRegxString    string
-	comparatorRegxString string
-	declarations         []*exprpb.Decl
-	regxFofaRule         *regexp.Regexp
+	comparatorRegxString = `==|~=|=|!=`
 )
-
-type RuleChecker struct {
-	program    cel.Program
-	expression string
-}
 
 type Keywords map[string]any
 
@@ -72,34 +27,49 @@ func (k Keywords) Map() map[string]any {
 	return k
 }
 
-func NewKeywords(stringMap map[string]string) Keywords {
-	var keywordMap = make(Keywords)
+type Engine struct {
+	//用于存储引擎所支持的关键字
+	keywordSymbols []string
+
+	declarations []*exprpb.Decl
+
+	keywordRegxString string
+
+	regxFofaRule *regexp.Regexp
+}
+
+func New(keywordSymbols ...string) *Engine {
+	var e = &Engine{}
+	e.keywordSymbols = keywordSymbols
+
+	//初始化declarations
 	for _, keyword := range keywordSymbols {
+		e.declarations = append(e.declarations, decls.NewVar(keyword, decls.String))
+		e.declarations = append(e.declarations, decls.NewVar(addLowerFlag(keyword), decls.String))
+	}
+
+	//初始化keyword正则
+	e.keywordRegxString = strings.Join(keywordSymbols, "|")
+
+	//序列化正则表达式
+	e.regxFofaRule = regexp.MustCompile(fmt.Sprintf(`((?i)%s)[ \t]*(%s)[ \t]*("[^"]+")`, e.keywordRegxString, comparatorRegxString))
+	return e
+}
+
+func (e *Engine) NewKeywords(stringMap map[string]string) Keywords {
+	var keywordMap = make(Keywords)
+	for _, keyword := range e.keywordSymbols {
 		keywordMap[keyword] = stringMap[keyword]
 		keywordMap[addLowerFlag(keyword)] = strings.ToLower(stringMap[keyword])
 	}
 	return keywordMap
 }
 
-// Match 只接受小写关键字，关键字清单见：keywordSymbols
-func (r *RuleChecker) Match(keywords Keywords) bool {
-	out, _, err := r.program.Eval(keywords.Map())
-	if err != nil {
-		panic(err)
-	}
-
-	return out.Value().(bool)
-}
-
-func (r *RuleChecker) String() string {
-	return r.expression
-}
-
-func New(fofaRule string) (*RuleChecker, error) {
+func (e *Engine) NewRule(fofaRule string) (*RuleChecker, error) {
 	// 创建 CEL 环境
 	env, _ := cel.NewEnv(
 		//加载关键字
-		cel.Declarations(declarations...),
+		cel.Declarations(e.declarations...),
 		//加载比对函数
 		containsCelFunc,
 		equalCelFunc,
@@ -107,7 +77,7 @@ func New(fofaRule string) (*RuleChecker, error) {
 		regexpMatchCelFunc,
 	)
 
-	rule := ruleConvert(fofaRule)
+	rule := e.ruleConvert(fofaRule)
 
 	// 创建 CEL 表达式
 	ast, issues := env.Compile(rule)
@@ -123,11 +93,11 @@ func New(fofaRule string) (*RuleChecker, error) {
 	return &RuleChecker{prg, fofaRule}, nil
 }
 
-func ruleConvert(fofaRule string) string {
+func (e *Engine) ruleConvert(fofaRule string) string {
 	fofaRule = strings.ReplaceAll(fofaRule, `\"`, `[quote]`)
 
-	fofaRule = regxFofaRule.ReplaceAllStringFunc(fofaRule, func(s string) string {
-		v := regxFofaRule.FindAllStringSubmatch(s, -1)[0]
+	fofaRule = e.regxFofaRule.ReplaceAllStringFunc(fofaRule, func(s string) string {
+		v := e.regxFofaRule.FindAllStringSubmatch(s, -1)[0]
 		keyword := v[1]
 		comparator := v[2]
 		value := v[3]
@@ -140,6 +110,25 @@ func ruleConvert(fofaRule string) string {
 		}
 	})
 	return strings.ReplaceAll(fofaRule, `[quote]`, `\"`)
+}
+
+type RuleChecker struct {
+	program    cel.Program
+	expression string
+}
+
+// Match 只接受小写关键字，关键字清单见：keywordSymbols
+func (r *RuleChecker) Match(keywords Keywords) bool {
+	out, _, err := r.program.Eval(keywords.Map())
+	if err != nil {
+		panic(err)
+	}
+
+	return out.Value().(bool)
+}
+
+func (r *RuleChecker) String() string {
+	return r.expression
 }
 
 // containsCelFunc 忽略大小写判断是否s1包含s2 comparatorSymbols : =

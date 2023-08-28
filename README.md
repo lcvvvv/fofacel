@@ -12,18 +12,21 @@ import (
 )
 
 func main() {
-	rule, err := fofacel.New(`body="aaaaa" && title="aaaaaa"`)
+	engine := fofacel.New("body","title")
+	
+	
+	rule, err := engine.NewRule(`body="aaaaa" && title="aaaaaa"`)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(rule.Match(fofacel.NewKeywords(map[string]string{
+	fmt.Println(rule.Match(engine.NewKeywords(map[string]string{
 		"body":  "aaaaaaaaaaaaaaaa",
 		"title": "aaaaaaaaaaaaaa",
 	})))
 	//true
 
-	fmt.Println(rule.Match(fofacel.NewKeywords(map[string]string{
+	fmt.Println(rule.Match(engine.NewKeywords(map[string]string{
 		"body":  "bbbbbbbbbbbbb",
 		"title": "aaaaaaaaaaaaaa",
 	})))
